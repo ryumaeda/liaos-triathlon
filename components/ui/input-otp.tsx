@@ -35,7 +35,23 @@ const InputOTPSlot = React.forwardRef<
   React.ComponentPropsWithoutRef<"div"> & { index: number }
 >(({ index, className, ...props }, ref) => {
   const inputOTPContext = React.useContext(OTPInputContext);
-  const { char, hasFakeCaret, isActive } = inputOTPContext.slots[index];
+  const slot = inputOTPContext.slots[index];
+
+  // index が maxLength を超えている場合など、安全に何も表示しない
+  if (!slot) {
+    return (
+      <div
+        ref={ref}
+        className={cn(
+          "relative flex h-9 w-9 items-center justify-center border-y border-r border-input text-sm shadow-sm first:rounded-l-md first:border-l last:rounded-r-md",
+          className,
+        )}
+        {...props}
+      />
+    );
+  }
+
+  const { char, hasFakeCaret, isActive } = slot;
 
   return (
     <div

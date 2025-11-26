@@ -34,8 +34,8 @@ export default function LoginPage() {
 
   const handleLoginWithOtp = async () => {
     if (!hasEnvVars) return;
-    if (loginCode.length !== 5) {
-      setLoginError("5文字のコードを入力してください。");
+    if (loginCode.length !== 6) {
+      setLoginError("6文字のコードを入力してください。");
       return;
     }
 
@@ -66,8 +66,8 @@ export default function LoginPage() {
         return;
       }
 
-      // 簡易セッション（1週間）
-      document.cookie = "liao_session=1; Path=/; Max-Age=604800; SameSite=Lax";
+      // 簡易セッション（30分）
+      document.cookie = "liao_session=1; Path=/; Max-Age=1800; SameSite=Lax";
 
       toast.success("ログインに成功しました。");
       setIsRedirecting(true);
@@ -95,13 +95,13 @@ export default function LoginPage() {
           <CardContent className="pt-0 space-y-3">
             <div className="flex flex-col items-center gap-3">
               <InputOTP
-                maxLength={5}
+                maxLength={6}
                 value={loginCode}
                 onChange={(value) => setLoginCode(value)}
                 containerClassName="justify-center"
               >
                 <InputOTPGroup>
-                  {Array.from({ length: 7 }).map((_, index) => (
+                  {Array.from({ length: 6 }).map((_, index) => (
                     <InputOTPSlot key={index} index={index} />
                   ))}
                 </InputOTPGroup>
@@ -123,7 +123,7 @@ export default function LoginPage() {
                   type="button"
                   className="rounded-full bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
                   onClick={handleLoginWithOtp}
-                  disabled={isLoggingIn || loginCode.length !== 5}
+                  disabled={isLoggingIn || loginCode.length !== 6}
                 >
                   {isLoggingIn ? "確認中..." : "ログイン"}
                 </button>

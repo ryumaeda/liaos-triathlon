@@ -226,6 +226,28 @@ export default function LiaoPage() {
       return;
     }
 
+    // 同点チェック
+    const kusogeScoreGroups = new Map<number, string[]>();
+    participants.forEach((p) => {
+      const v = p.value;
+      if (v === null || Number.isNaN(v)) return;
+      const list = kusogeScoreGroups.get(v) ?? [];
+      list.push(p.team.name);
+      kusogeScoreGroups.set(v, list);
+    });
+    const kusogeDuplicatedTeams = Array.from(kusogeScoreGroups.values())
+      .filter((names) => names.length > 1)
+      .flat();
+
+    if (kusogeDuplicatedTeams.length > 0) {
+      setSaveError(
+        `スコアが同点のチームがあります（${kusogeDuplicatedTeams.join(
+          "、"
+        )}）。スコアを調整してから保存してください。`
+      );
+      return;
+    }
+
     const sorted = [...participants].sort((a, b) => b.value - a.value);
     const first = sorted[0];
     const third = sorted[2];
@@ -327,8 +349,9 @@ export default function LiaoPage() {
 
       const scoreValue =
         scoreRaw === undefined || scoreRaw === "" ? null : Number(scoreRaw);
+      // ボーナスは未入力（空）の場合は 0 として扱う
       const bonusValue =
-        bonusRaw === undefined || bonusRaw === "" ? null : Number(bonusRaw);
+        bonusRaw === undefined || bonusRaw === "" ? 0 : Number(bonusRaw);
 
       return {
         team,
@@ -345,7 +368,6 @@ export default function LiaoPage() {
         (p) =>
           p.scoreValue !== null &&
           !Number.isNaN(p.scoreValue) &&
-          p.bonusValue !== null &&
           !Number.isNaN(p.bonusValue)
       )
       .map((p): BowlingParticipant => {
@@ -359,8 +381,29 @@ export default function LiaoPage() {
         };
       });
 
-    if (participants.length < 2) {
-      setSaveError("少なくとも2チームのスコアとボーナスを入力してください。");
+    if (participants.length < 3) {
+      setSaveError("少なくとも3チームのスコアを入力してください。");
+      return;
+    }
+
+    // 同点チェック（effectiveScore 単位）
+    const bowlingScoreGroups = new Map<number, string[]>();
+    participants.forEach((p) => {
+      const v = p.effectiveScore;
+      const list = bowlingScoreGroups.get(v) ?? [];
+      list.push(p.team.name);
+      bowlingScoreGroups.set(v, list);
+    });
+    const bowlingDuplicatedTeams = Array.from(bowlingScoreGroups.values())
+      .filter((names) => names.length > 1)
+      .flat();
+
+    if (bowlingDuplicatedTeams.length > 0) {
+      setSaveError(
+        `スコアが同点のチームがあります（${bowlingDuplicatedTeams.join(
+          "、"
+        )}）。スコアを調整してから保存してください。`
+      );
       return;
     }
 
@@ -877,9 +920,10 @@ export default function LiaoPage() {
                           scoreRaw === undefined || scoreRaw === ""
                             ? null
                             : Number(scoreRaw);
+                        // ボーナスは未入力（空）の場合は 0 として扱う
                         const bonusValue =
                           bonusRaw === undefined || bonusRaw === ""
-                            ? null
+                            ? 0
                             : Number(bonusRaw);
 
                         return {
@@ -897,7 +941,6 @@ export default function LiaoPage() {
                         (p) =>
                           p.scoreValue !== null &&
                           !Number.isNaN(p.scoreValue) &&
-                          p.bonusValue !== null &&
                           !Number.isNaN(p.bonusValue)
                       )
                       .map((p): BowlingParticipant => {
@@ -913,7 +956,7 @@ export default function LiaoPage() {
                         };
                       });
 
-                    if (participants.length < 2) return null;
+                    if (participants.length < 3) return null;
 
                     const sorted = [...participants].sort(
                       (a, b) => b.effectiveScore - a.effectiveScore
@@ -922,6 +965,32 @@ export default function LiaoPage() {
                     const last = sorted[sorted.length - 1];
 
                     if (!first || !last) return null;
+
+                    // 同点チェック（effectiveScore 単位）
+                    const scoreGroups = new Map<number, string[]>();
+                    participants.forEach((p) => {
+                      const v = p.effectiveScore;
+                      const list = scoreGroups.get(v) ?? [];
+                      list.push(p.team.name);
+                      scoreGroups.set(v, list);
+                    });
+                    const duplicatedTeams = Array.from(scoreGroups.values())
+                      .filter((names) => names.length > 1)
+                      .flat();
+                    const hasTies = duplicatedTeams.length > 0;
+
+                    // 同点がある場合は計算結果は表示せず、警告のみ表示
+                    if (hasTies) {
+                      return (
+                        <div className="space-y-1 text-sm">
+                          <p className="text-xs text-orange-500">
+                            スコアが同点のチームがあります（
+                            {duplicatedTeams.join("、")}
+                            ）。スコアを調整してから保存してください。
+                          </p>
+                        </div>
+                      );
+                    }
 
                     const diffScore =
                       first.effectiveScore - last.effectiveScore;
@@ -949,7 +1018,7 @@ export default function LiaoPage() {
                     <button
                       type="button"
                       className="rounded-full border px-3 py-1.5 text-xs"
-                      onClick={() => setIsDialogOpen(false)}
+                      onClick={() => handleDialogOpenChange(false)}
                       disabled={isSaving}
                     >
                       キャンセル
@@ -966,10 +1035,73 @@ export default function LiaoPage() {
                             if (!entry) return false;
                             const hasScore =
                               entry.score !== undefined && entry.score !== "";
-                            const hasBonus =
-                              entry.bonus !== undefined && entry.bonus !== "";
-                            return hasScore && hasBonus;
-                          }).length < 2)
+                            return hasScore;
+                          }).length < 3) ||
+                        // 同点がある場合は保存ボタンを無効化
+                        (() => {
+                          if (!rows) return false;
+
+                          const parsed: BowlingParsed[] =
+                            rows?.map((team): BowlingParsed => {
+                              const entry = bowlingEntries[team.id];
+                              const scoreRaw = entry?.score;
+                              const bonusRaw = entry?.bonus;
+                              const handicap = entry?.handicap ?? false;
+
+                              const scoreValue =
+                                scoreRaw === undefined || scoreRaw === ""
+                                  ? null
+                                  : Number(scoreRaw);
+                              const bonusValue =
+                                bonusRaw === undefined || bonusRaw === ""
+                                  ? 0
+                                  : Number(bonusRaw);
+
+                              return {
+                                team,
+                                scoreRaw,
+                                bonusRaw,
+                                handicap,
+                                scoreValue,
+                                bonusValue,
+                              };
+                            }) ?? [];
+
+                          const participants: BowlingParticipant[] = parsed
+                            .filter(
+                              (p) =>
+                                p.scoreValue !== null &&
+                                !Number.isNaN(p.scoreValue) &&
+                                !Number.isNaN(p.bonusValue)
+                            )
+                            .map((p): BowlingParticipant => {
+                              const baseScore =
+                                (p.scoreValue as number) +
+                                (p.bonusValue as number) * 10;
+                              const effectiveScore =
+                                baseScore + (p.handicap ? 60 : 0);
+                              return {
+                                team: p.team,
+                                handicap: p.handicap,
+                                effectiveScore,
+                              };
+                            });
+
+                          if (participants.length < 3) return true;
+
+                          const scoreGroups = new Map<number, number>();
+                          for (const p of participants) {
+                            const v = p.effectiveScore;
+                            const count = scoreGroups.get(v) ?? 0;
+                            if (count >= 1) {
+                              // 同じスコアが2回以上出たら同点
+                              return true;
+                            }
+                            scoreGroups.set(v, count + 1);
+                          }
+
+                          return false;
+                        })()
                       }
                     >
                       {isSaving ? "保存中..." : "保存"}
@@ -1032,6 +1164,32 @@ export default function LiaoPage() {
 
                     if (!first || !third) return null;
 
+                    // 同点チェック
+                    const scoreGroups = new Map<number, string[]>();
+                    participants.forEach((p) => {
+                      const v = p.value;
+                      const list = scoreGroups.get(v) ?? [];
+                      list.push(p.team.name);
+                      scoreGroups.set(v, list);
+                    });
+                    const duplicatedTeams = Array.from(scoreGroups.values())
+                      .filter((names) => names.length > 1)
+                      .flat();
+                    const hasTies = duplicatedTeams.length > 0;
+
+                    // 同点がある場合は計算結果は表示せず、警告のみ表示
+                    if (hasTies) {
+                      return (
+                        <div className="space-y-1 text-sm">
+                          <p className="text-xs text-orange-500">
+                            スコアが同点のチームがあります（
+                            {duplicatedTeams.join("、")}
+                            ）。スコアを調整してから保存してください。
+                          </p>
+                        </div>
+                      );
+                    }
+
                     const diffScore = first.value - third.value;
                     const liaosAmount = 3000 + diffScore * 100;
 
@@ -1057,7 +1215,7 @@ export default function LiaoPage() {
                     <button
                       type="button"
                       className="rounded-full border px-3 py-1.5 text-xs"
-                      onClick={() => setIsDialogOpen(false)}
+                      onClick={() => handleDialogOpenChange(false)}
                       disabled={isSaving}
                     >
                       キャンセル
@@ -1072,7 +1230,44 @@ export default function LiaoPage() {
                         (rows &&
                           Object.values(kusogeScores).filter(
                             (v) => v !== undefined && v !== ""
-                          ).length < 3)
+                          ).length < 3) ||
+                        // 同点がある場合は保存ボタンを無効化
+                        (() => {
+                          if (!rows) return false;
+
+                          const parsed: KusogeParsed[] =
+                            rows?.map((team): KusogeParsed => {
+                              const raw = kusogeScores[team.id] as
+                                | string
+                                | undefined;
+                              const value =
+                                raw === undefined || raw === ""
+                                  ? null
+                                  : Number(raw);
+                              return { team, raw, value };
+                            }) ?? [];
+
+                          const participants: KusogeParticipant[] =
+                            parsed.filter(
+                              (p): p is KusogeParticipant =>
+                                p.value !== null && !Number.isNaN(p.value)
+                            );
+
+                          if (participants.length < 3) return true;
+
+                          const scoreGroups = new Map<number, number>();
+                          for (const p of participants) {
+                            const v = p.value;
+                            const count = scoreGroups.get(v) ?? 0;
+                            if (count >= 1) {
+                              // 同じスコアが2回以上出たら同点
+                              return true;
+                            }
+                            scoreGroups.set(v, count + 1);
+                          }
+
+                          return false;
+                        })()
                       }
                     >
                       {isSaving ? "保存中..." : "保存"}
@@ -1163,18 +1358,26 @@ export default function LiaoPage() {
                     </div>
                   </div>
 
-                  {teamA && teamB && winner && (
+                  {teamA && teamB && teamAScore !== "" && teamBScore !== "" && (
                     <div className="mt-2 space-y-1 text-sm">
-                      <p>
-                        勝ち: {winner === "A" ? teamA.name : teamB.name} →{" "}
-                        {winnerValue}
-                        liaos
-                      </p>
-                      <p>
-                        負け: {loser === "A" ? teamA.name : teamB.name} →{" "}
-                        {loserValue}
-                        liaos
-                      </p>
+                      {aScoreNum === bScoreNum ? (
+                        <p className="text-xs text-orange-500">
+                          スコアが同点のため、勝敗をつけられません。スコアを調整してから保存してください。
+                        </p>
+                      ) : (
+                        <>
+                          <p>
+                            勝ち: {winner === "A" ? teamA.name : teamB.name} →{" "}
+                            {winnerValue}
+                            liaos
+                          </p>
+                          <p>
+                            負け: {loser === "A" ? teamA.name : teamB.name} →{" "}
+                            {loserValue}
+                            liaos
+                          </p>
+                        </>
+                      )}
                     </div>
                   )}
 
@@ -1188,7 +1391,7 @@ export default function LiaoPage() {
                     <button
                       type="button"
                       className="rounded-full border px-3 py-1.5 text-xs"
-                      onClick={() => setIsDialogOpen(false)}
+                      onClick={() => handleDialogOpenChange(false)}
                       disabled={isSaving}
                     >
                       キャンセル
@@ -1203,7 +1406,8 @@ export default function LiaoPage() {
                         !teamB ||
                         teamA.id === teamB.id ||
                         teamAScore === "" ||
-                        teamBScore === ""
+                        teamBScore === "" ||
+                        aScoreNum === bScoreNum
                       }
                     >
                       {isSaving ? "保存中..." : "保存"}
@@ -1213,7 +1417,19 @@ export default function LiaoPage() {
               )}
 
               {/* ダーツ */}
-              {selectedGame === "ダーツ" && rows && <DartsForm rows={rows} />}
+              {selectedGame === "ダーツ" && rows && (
+                <DartsForm
+                  rows={rows}
+                  isSaving={isSaving}
+                  saveError={saveError}
+                  activeTab={activeTab}
+                  onClose={() => handleDialogOpenChange(false)}
+                  setIsSaving={setIsSaving}
+                  setSaveError={setSaveError}
+                  setRows={setRows}
+                  setHistoryRows={setHistoryRows}
+                />
+              )}
             </DialogContent>
           </Dialog>
         )}
@@ -1224,9 +1440,27 @@ export default function LiaoPage() {
 
 type DartsFormProps = {
   rows: TeamRow[];
+  isSaving: boolean;
+  saveError: string | null;
+  activeTab: "summary" | "history";
+  onClose: () => void;
+  setIsSaving: (value: boolean) => void;
+  setSaveError: (value: string | null) => void;
+  setRows: (rows: TeamRow[] | null) => void;
+  setHistoryRows: (rows: HistoryRow[] | null) => void;
 };
 
-function DartsForm({ rows }: DartsFormProps) {
+function DartsForm({
+  rows,
+  isSaving,
+  saveError,
+  activeTab,
+  onClose,
+  setIsSaving,
+  setSaveError,
+  setRows,
+  setHistoryRows,
+}: DartsFormProps) {
   const [scores, setScores] = useState<Record<number, string>>({});
 
   const parsed = rows.map((team) => {
@@ -1258,6 +1492,125 @@ function DartsForm({ rows }: DartsFormProps) {
   const thirdLiaos = allFilled && third ? -2000 - thirdDiff * 10 : 0;
   const firstLiaos = allFilled && first ? -secondLiaos - thirdLiaos : 0;
 
+  // プレビュー用：同点チェック
+  const dartsScoreGroupsPreview = new Map<number, string[]>();
+  if (allFilled) {
+    numeric.forEach((p) => {
+      const v = p.value;
+      const list = dartsScoreGroupsPreview.get(v) ?? [];
+      list.push(p.team.name);
+      dartsScoreGroupsPreview.set(v, list);
+    });
+  }
+  const dartsDuplicatedTeamsPreview = Array.from(
+    dartsScoreGroupsPreview.values()
+  )
+    .filter((names) => names.length > 1)
+    .flat();
+  const hasTiesPreview = dartsDuplicatedTeamsPreview.length > 0;
+
+  const handleSaveDarts = async () => {
+    if (!rows.length || !allFilled || !first) return;
+
+    // 同点チェック
+    const dartsScoreGroups = new Map<number, string[]>();
+    numeric.forEach((p) => {
+      const v = p.value;
+      const list = dartsScoreGroups.get(v) ?? [];
+      list.push(p.team.name);
+      dartsScoreGroups.set(v, list);
+    });
+    const dartsDuplicatedTeams = Array.from(dartsScoreGroups.values())
+      .filter((names) => names.length > 1)
+      .flat();
+
+    if (dartsDuplicatedTeams.length > 0) {
+      setSaveError(
+        `スコアが同点のチームがあります（${dartsDuplicatedTeams.join(
+          "、"
+        )}）。スコアを調整してから保存してください。`
+      );
+      return;
+    }
+
+    const supabase = createClient();
+
+    // 各チームのliaosを決定（1位/2位/3位以外は0）
+    const liaosByTeam = new Map<number, number>();
+    rows.forEach((team) => liaosByTeam.set(team.id, 0));
+
+    liaosByTeam.set(first.team.id, firstLiaos);
+    if (second) liaosByTeam.set(second.team.id, secondLiaos);
+    if (third) liaosByTeam.set(third.team.id, thirdLiaos);
+
+    const payload = rows.map((team) => ({
+      game_name: "ダーツ",
+      team_id: team.id,
+      score: liaosByTeam.get(team.id) ?? 0,
+    }));
+
+    setIsSaving(true);
+    setSaveError(null);
+
+    try {
+      const { error } = await supabase.from("scores").insert(payload);
+
+      if (error) {
+        console.error(error);
+        setSaveError(error.message);
+        return;
+      }
+
+      // teams を再読み込みして合計スコアを更新
+      const { data, error: fetchError } = await supabase
+        .from("teams")
+        .select("id, name, scores(score)")
+        .order("id", { ascending: true });
+
+      if (fetchError) {
+        console.error(fetchError);
+        setSaveError(fetchError.message);
+        return;
+      }
+
+      const aggregated: TeamRow[] =
+        (data as RawTeamRow[] | null | undefined)?.map((row) => ({
+          id: row.id,
+          name: row.name,
+          totalScore: Array.isArray(row.scores)
+            ? row.scores.reduce((sum, s) => sum + (s?.score ?? 0), 0)
+            : 0,
+        })) ?? [];
+
+      setRows(aggregated);
+      toast.success("ダーツのスコアを保存しました。");
+      onClose();
+
+      // 履歴タブを見ている場合は最新データを再取得
+      if (activeTab === "history") {
+        const { data: hData, error: hError } = await supabase
+          .from("scores")
+          .select("id, game_name, score, created_at, teams(name)")
+          .order("created_at", { ascending: false });
+
+        if (!hError) {
+          const mapped: HistoryRow[] =
+            ((hData ?? []) as unknown as HistoryRowWithTeam[])?.map((row) => ({
+              id: row.id,
+              game_name: row.game_name,
+              score: row.score,
+              created_at: row.created_at,
+              team_name: row.teams?.name ?? "",
+            })) ?? [];
+
+          setHistoryRows(mapped);
+        }
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="mt-4 space-y-4">
       <div className="space-y-2">
@@ -1286,23 +1639,77 @@ function DartsForm({ rows }: DartsFormProps) {
 
       {rows.length >= 2 && allFilled && (
         <div className="space-y-1 text-sm">
-          {first && (
-            <p>
-              1位: {first.team.name} → {firstLiaos} liaos
+          {hasTiesPreview ? (
+            <p className="text-xs text-orange-500">
+              スコアが同点のチームがあります（
+              {dartsDuplicatedTeamsPreview.join("、")}
+              ）。スコアを調整してから保存してください。
             </p>
-          )}
-          {second && (
-            <p>
-              2位: {second.team.name} → {secondLiaos} liaos
-            </p>
-          )}
-          {third && (
-            <p>
-              3位: {third.team.name} → {thirdLiaos} liaos
-            </p>
+          ) : (
+            <>
+              {first && (
+                <p>
+                  1位: {first.team.name} → {firstLiaos} liaos
+                </p>
+              )}
+              {second && (
+                <p>
+                  2位: {second.team.name} → {secondLiaos} liaos
+                </p>
+              )}
+              {third && (
+                <p>
+                  3位: {third.team.name} → {thirdLiaos} liaos
+                </p>
+              )}
+            </>
           )}
         </div>
       )}
+
+      {saveError && (
+        <p className="mt-2 text-xs text-red-500">保存エラー: {saveError}</p>
+      )}
+
+      <div className="mt-4 flex justify-end gap-2">
+        <button
+          type="button"
+          className="rounded-full border px-3 py-1.5 text-xs"
+          onClick={onClose}
+          disabled={isSaving}
+        >
+          キャンセル
+        </button>
+        <button
+          type="button"
+          className="rounded-full bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
+          onClick={handleSaveDarts}
+          disabled={
+            isSaving ||
+            !allFilled ||
+            rows.length < 2 ||
+            // 同点がある場合は保存ボタンを無効化
+            (() => {
+              if (!allFilled) return false;
+
+              const scoreGroups = new Map<number, number>();
+              for (const p of numeric) {
+                const v = p.value;
+                const count = scoreGroups.get(v) ?? 0;
+                if (count >= 1) {
+                  // 同じスコアが2回以上出たら同点
+                  return true;
+                }
+                scoreGroups.set(v, count + 1);
+              }
+
+              return false;
+            })()
+          }
+        >
+          {isSaving ? "保存中..." : "保存"}
+        </button>
+      </div>
     </div>
   );
 }
