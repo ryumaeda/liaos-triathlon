@@ -12,11 +12,13 @@ import {
   InputOTPGroup,
   InputOTPSlot,
 } from "@/components/ui/input-otp";
+import { Spinner } from "@/components/ui/spinner";
 
 export default function LoginPage() {
   const [loginCode, setLoginCode] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
   const router = useRouter();
 
@@ -68,6 +70,7 @@ export default function LoginPage() {
       document.cookie = "liao_session=1; Path=/; Max-Age=604800; SameSite=Lax";
 
       toast.success("ログインに成功しました。");
+      setIsRedirecting(true);
       router.replace("/liao");
     } finally {
       setIsLoggingIn(false);
@@ -75,7 +78,7 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-background via-background to-muted flex flex-col items-center justify-center p-6">
+    <main className="relative min-h-screen bg-gradient-to-b from-background via-background to-muted flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm">
         {!hasEnvVars && (
           <p className="mb-4 text-sm text-red-500">
@@ -133,6 +136,14 @@ export default function LoginPage() {
           </CardContent>
         </Card>
       </div>
+      {isRedirecting && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/60">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Spinner />
+            <span>画面を読み込み中...</span>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
