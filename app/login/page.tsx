@@ -34,8 +34,8 @@ export default function LoginPage() {
 
   const handleLoginWithOtp = async () => {
     if (!hasEnvVars) return;
-    if (loginCode.length !== 7) {
-      setLoginError("7文字のコードを入力してください。");
+    if (loginCode.length !== 5) {
+      setLoginError("5文字のコードを入力してください。");
       return;
     }
 
@@ -95,7 +95,7 @@ export default function LoginPage() {
           <CardContent className="pt-0 space-y-3">
             <div className="flex flex-col items-center gap-3">
               <InputOTP
-                maxLength={7}
+                maxLength={5}
                 value={loginCode}
                 onChange={(value) => setLoginCode(value)}
                 containerClassName="justify-center"
@@ -123,7 +123,7 @@ export default function LoginPage() {
                   type="button"
                   className="rounded-full bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
                   onClick={handleLoginWithOtp}
-                  disabled={isLoggingIn || loginCode.length !== 7}
+                  disabled={isLoggingIn || loginCode.length !== 5}
                 >
                   {isLoggingIn ? "確認中..." : "ログイン"}
                 </button>
