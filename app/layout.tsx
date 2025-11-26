@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import "./globals.css";
@@ -12,6 +12,13 @@ export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
   title: "Liaosトライアスロン",
   description: "Liaosトライアスロンのスコア管理アプリケーション",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 const geistSans = Geist({
