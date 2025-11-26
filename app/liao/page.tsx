@@ -601,12 +601,6 @@ export default function LiaoPage() {
           </p>
         )}
 
-        {hasEnvVars && !rows && !error && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner />
-            <span>読み込み中...</span>
-          </div>
-        )}
         {error && <p className="text-sm text-red-500">エラー: {error}</p>}
 
         {hasEnvVars && (
@@ -652,7 +646,7 @@ export default function LiaoPage() {
           </div>
         )}
 
-        {hasEnvVars && activeTab === "summary" && rows && (
+        {hasEnvVars && activeTab === "summary" && (
           <div className="space-y-4">
             <Card className="border border-border/60 bg-background/80">
               <CardHeader className="pb-4">
@@ -663,7 +657,12 @@ export default function LiaoPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
-                {rows.length === 0 ? (
+                {!rows ? (
+                  <div className="flex items-center justify-center py-6 text-sm text-muted-foreground">
+                    <Spinner />
+                    <span className="ml-2">読み込み中...</span>
+                  </div>
+                ) : rows.length === 0 ? (
                   <p className="py-3 text-sm text-muted-foreground">
                     テーブル &quot;teams&quot; にデータがありません。
                   </p>
