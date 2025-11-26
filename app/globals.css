@@ -65,4 +65,14 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* iOS Safari でインプットフォーカス時にズームされる問題対策
+     フォントサイズ16px未満だと自動で拡大されるため、モバイルでは最低16pxにする */
+  @media (max-width: 640px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px;
+    }
+  }
 }
