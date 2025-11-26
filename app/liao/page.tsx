@@ -5,7 +5,13 @@ import { createClient } from "@/lib/supabase/client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
@@ -108,6 +114,9 @@ export default function LiaoPage() {
   const [bowlingEntries, setBowlingEntries] = useState<
     Record<number, BowlingEntry>
   >({});
+  const [manualFromId, setManualFromId] = useState<number | null>(null);
+  const [manualToId, setManualToId] = useState<number | null>(null);
+  const [manualAmount, setManualAmount] = useState<string>("");
   const [teamAId, setTeamAId] = useState<number | null>(null);
   const [teamBId, setTeamBId] = useState<number | null>(null);
   const [teamAScore, setTeamAScore] = useState<string>("");
@@ -118,6 +127,9 @@ export default function LiaoPage() {
   const [historyRows, setHistoryRows] = useState<HistoryRow[] | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isAuthorized, setIsAuthorized] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<HistoryRow | null>(null);
+  const [isDeletingHistory, setIsDeletingHistory] = useState(false);
 
   // セッションチェック（未ログインなら /login へ）
   useEffect(() => {
@@ -499,6 +511,98 @@ export default function LiaoPage() {
     }
   };
 
+  const handleSaveManual = async () => {
+    if (!rows) return;
+    if (!manualFromId || !manualToId) {
+      setSaveError("送金元と送金先のチームを選択してください。");
+      return;
+    }
+    if (manualFromId === manualToId) {
+      setSaveError("送金元と送金先は別のチームを選択してください。");
+      return;
+    }
+
+    const amount = Number(manualAmount);
+    if (!manualAmount || Number.isNaN(amount) || amount <= 0) {
+      setSaveError("1以上の liaos を入力してください。");
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError(null);
+
+    const supabase = createClient();
+
+    const payload = [
+      {
+        game_name: "手動",
+        team_id: manualFromId,
+        score: -amount,
+      },
+      {
+        game_name: "手動",
+        team_id: manualToId,
+        score: amount,
+      },
+    ];
+
+    try {
+      const { error } = await supabase.from("scores").insert(payload);
+
+      if (error) {
+        console.error(error);
+        setSaveError(error.message);
+        return;
+      }
+
+      const { data, error: fetchError } = await supabase
+        .from("teams")
+        .select("id, name, scores(score)")
+        .order("id", { ascending: true });
+
+      if (fetchError) {
+        console.error(fetchError);
+        setSaveError(fetchError.message);
+        return;
+      }
+
+      const aggregated: TeamRow[] =
+        (data as RawTeamRow[] | null | undefined)?.map((row) => ({
+          id: row.id,
+          name: row.name,
+          totalScore: Array.isArray(row.scores)
+            ? row.scores.reduce((sum, s) => sum + (s?.score ?? 0), 0)
+            : 0,
+        })) ?? [];
+
+      setRows(aggregated);
+      toast.success("手動での liaos 移動を保存しました。");
+      handleDialogOpenChange(false);
+
+      if (activeTab === "history") {
+        const { data: hData, error: hError } = await supabase
+          .from("scores")
+          .select("id, game_name, score, created_at, teams(name)")
+          .order("created_at", { ascending: false });
+
+        if (!hError) {
+          const mapped: HistoryRow[] =
+            ((hData ?? []) as unknown as HistoryRowWithTeam[])?.map((row) => ({
+              id: row.id,
+              game_name: row.game_name,
+              score: row.score,
+              created_at: row.created_at,
+              team_name: row.teams?.name ?? "",
+            })) ?? [];
+
+          setHistoryRows(mapped);
+        }
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleSaveMolkky = async () => {
     if (!teamA || !teamB) return;
 
@@ -582,6 +686,8 @@ export default function LiaoPage() {
   const handleDeleteHistory = async (id: number) => {
     const supabase = createClient();
 
+    setIsDeletingHistory(true);
+
     const { error: deleteError } = await supabase
       .from("scores")
       .delete()
@@ -589,6 +695,7 @@ export default function LiaoPage() {
     if (deleteError) {
       console.error(deleteError);
       setError(deleteError.message);
+      setIsDeletingHistory(false);
       return;
     }
 
@@ -602,6 +709,7 @@ export default function LiaoPage() {
     if (fetchError) {
       console.error(fetchError);
       setError(fetchError.message);
+      setIsDeletingHistory(false);
       return;
     }
 
@@ -615,6 +723,7 @@ export default function LiaoPage() {
       })) ?? [];
 
     setRows(aggregated);
+    setIsDeletingHistory(false);
   };
 
   const handleDialogOpenChange = (open: boolean) => {
@@ -627,6 +736,9 @@ export default function LiaoPage() {
       setTeamBId(null);
       setTeamAScore("");
       setTeamBScore("");
+      setManualFromId(null);
+      setManualToId(null);
+      setManualAmount("");
       setSaveError(null);
     }
   };
@@ -792,8 +904,12 @@ export default function LiaoPage() {
                           <td className="py-1.5 px-2 text-right">
                             <button
                               type="button"
-                              className="text-xs text-red-500 hover:text-red-600"
-                              onClick={() => handleDeleteHistory(row.id)}
+                              className="text-xs text-red-500 hover:text-red-600 disabled:opacity-50"
+                              disabled={isDeletingHistory}
+                              onClick={() => {
+                                setDeleteTarget(row);
+                                setIsDeleteDialogOpen(true);
+                              }}
                             >
                               🗑️
                             </button>
@@ -808,18 +924,71 @@ export default function LiaoPage() {
           </div>
         )}
 
+        {/* 履歴削除用ダイアログ */}
+        {hasEnvVars && deleteTarget && (
+          <Dialog
+            open={isDeleteDialogOpen}
+            onOpenChange={(open) => {
+              setIsDeleteDialogOpen(open);
+              if (!open) {
+                setDeleteTarget(null);
+              }
+            }}
+          >
+            <DialogContent className="space-y-1 max-w-sm">
+              <DialogHeader className="space-y-7 text-center">
+                <DialogTitle className="text-sm">
+                  履歴を削除しますか？
+                </DialogTitle>
+                <DialogDescription className="text-xs space-y-1">
+                  <p>ゲーム：{deleteTarget.game_name}</p>
+                  <p>チーム：{deleteTarget.team_name}</p>
+                  <p>liaos：{deleteTarget.score}</p>
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  className="rounded-full border px-3 py-1.5 text-xs"
+                  onClick={() => {
+                    setIsDeleteDialogOpen(false);
+                    setDeleteTarget(null);
+                  }}
+                  disabled={isDeletingHistory}
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full bg-red-500 px-3 py-1.5 text-xs font-medium text-background hover:bg-red-600 disabled:opacity-50"
+                  onClick={async () => {
+                    if (!deleteTarget) return;
+                    await handleDeleteHistory(deleteTarget.id);
+                    setIsDeleteDialogOpen(false);
+                    setDeleteTarget(null);
+                  }}
+                  disabled={isDeletingHistory}
+                >
+                  {isDeletingHistory ? "削除中..." : "削除する"}
+                </button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
         {hasEnvVars && (
           <Dialog open={isDialogOpen} onOpenChange={handleDialogOpenChange}>
             <DialogContent className="space-y-4">
               <div className="space-y-2">
                 <p className="text-sm font-medium">ゲームを選択してください</p>
                 <Menubar className="border border-border/60 bg-background/80">
-                  {["モルック", "くそげ", "ダーツ", "ボーリング"].map(
+                  {["モルック", "くそげ", "ダーツ", "ボーリング", "手動"].map(
                     (game) => (
                       <MenubarMenu key={game}>
                         <MenubarTrigger
                           className={cn(
-                            "text-xs px-3 py-1",
+                            "text-[10px] px-3 py-1",
                             selectedGame === game && "bg-muted text-foreground"
                           )}
                           onClick={() => setSelectedGame(game)}
@@ -832,9 +1001,118 @@ export default function LiaoPage() {
                 </Menubar>
               </div>
 
+              {/* 手動 */}
+              {selectedGame === "手動" && rows && (
+                <div className="mt-4 space-y-4 min-h-[320px]">
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">
+                          送liaos元
+                        </p>
+                        <Select
+                          value={manualFromId ? String(manualFromId) : ""}
+                          onValueChange={(value) =>
+                            setManualFromId(value ? Number(value) : null)
+                          }
+                        >
+                          <SelectTrigger className="w-full h-8 text-xs">
+                            <SelectValue placeholder="チームを選択" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {rows
+                              ?.filter((team) => team.id !== manualToId)
+                              .map((team) => (
+                                <SelectItem
+                                  key={team.id}
+                                  value={String(team.id)}
+                                >
+                                  {team.name}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">
+                          送liaos先
+                        </p>
+                        <Select
+                          value={manualToId ? String(manualToId) : ""}
+                          onValueChange={(value) =>
+                            setManualToId(value ? Number(value) : null)
+                          }
+                        >
+                          <SelectTrigger className="w-full h-8 text-xs">
+                            <SelectValue placeholder="チームを選択" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {rows
+                              ?.filter((team) => team.id !== manualFromId)
+                              .map((team) => (
+                                <SelectItem
+                                  key={team.id}
+                                  value={String(team.id)}
+                                >
+                                  {team.name}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">liaos</p>
+                    <Input
+                      type="number"
+                      className="w-full h-8 text-xs"
+                      placeholder="liaosを入力"
+                      value={manualAmount}
+                      onChange={(e) => setManualAmount(e.target.value)}
+                    />
+                  </div>
+
+                  {saveError && (
+                    <p className="mt-2 text-xs text-red-500">
+                      保存エラー: {saveError}
+                    </p>
+                  )}
+
+                  <div className="mt-4 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      className="rounded-full border px-3 py-1.5 text-xs"
+                      onClick={() => handleDialogOpenChange(false)}
+                      disabled={isSaving}
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-full bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
+                      onClick={handleSaveManual}
+                      disabled={
+                        isSaving ||
+                        !rows ||
+                        !manualFromId ||
+                        !manualToId ||
+                        manualFromId === manualToId ||
+                        manualAmount === "" ||
+                        Number(manualAmount) <= 0
+                      }
+                    >
+                      {isSaving ? "保存中..." : "保存"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* ボーリング */}
               {selectedGame === "ボーリング" && rows && (
-                <div className="mt-4 space-y-4">
+                <div className="mt-4 space-y-4 min-h-[320px]">
                   <div className="space-y-2">
                     <p className="text-sm font-medium">
                       各チームのスコアとボーナスを入力してください
@@ -1112,7 +1390,7 @@ export default function LiaoPage() {
 
               {/* くそげ */}
               {selectedGame === "くそげ" && rows && (
-                <div className="mt-4 space-y-4">
+                <div className="mt-4 space-y-4 min-h-[320px]">
                   <div className="space-y-2">
                     <p className="text-sm font-medium">
                       各チームのスコアを入力してください
@@ -1278,7 +1556,7 @@ export default function LiaoPage() {
 
               {/* モルック */}
               {selectedGame === "モルック" && (
-                <div className="mt-4 space-y-4">
+                <div className="mt-4 space-y-4 min-h-[320px]">
                   <div className="space-y-2">
                     <p className="text-sm font-medium">
                       チームを選択してください
@@ -1295,11 +1573,16 @@ export default function LiaoPage() {
                             <SelectValue placeholder="チームを選択" />
                           </SelectTrigger>
                           <SelectContent>
-                            {rows?.map((team) => (
-                              <SelectItem key={team.id} value={String(team.id)}>
-                                {team.name}
-                              </SelectItem>
-                            ))}
+                            {rows
+                              ?.filter((team) => team.id !== teamBId)
+                              .map((team) => (
+                                <SelectItem
+                                  key={team.id}
+                                  value={String(team.id)}
+                                >
+                                  {team.name}
+                                </SelectItem>
+                              ))}
                           </SelectContent>
                         </Select>
                       </div>
@@ -1315,11 +1598,16 @@ export default function LiaoPage() {
                             <SelectValue placeholder="チームを選択" />
                           </SelectTrigger>
                           <SelectContent>
-                            {rows?.map((team) => (
-                              <SelectItem key={team.id} value={String(team.id)}>
-                                {team.name}
-                              </SelectItem>
-                            ))}
+                            {rows
+                              ?.filter((team) => team.id !== teamAId)
+                              .map((team) => (
+                                <SelectItem
+                                  key={team.id}
+                                  value={String(team.id)}
+                                >
+                                  {team.name}
+                                </SelectItem>
+                              ))}
                           </SelectContent>
                         </Select>
                       </div>
@@ -1612,10 +1900,10 @@ function DartsForm({
   };
 
   return (
-    <div className="mt-4 space-y-4">
+    <div className="mt-4 space-y-4 min-h-[320px]">
       <div className="space-y-2">
         <p className="text-sm font-medium">
-          各チームのダーツスコアを入力してください
+          各チームのスコアを入力してください
         </p>
         <div className="space-y-2 text-sm max-h-64 overflow-y-auto pr-1">
           {rows.map((team) => (
